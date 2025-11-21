@@ -4,18 +4,16 @@ import time
 from random import randint
 from datetime import datetime
 from selenium import webdriver
-from webdriver_manager.chrome import ChromeDriverManager
+# [수정] webdriver_manager 관련 import 제거
 from selenium.webdriver.common.keys import Keys
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.select import Select
-from selenium.common.exceptions import ElementClickInterceptedException, StaleElementReferenceException, WebDriverException, UnexpectedAlertPresentException
+from selenium.common.exceptions import ElementClickInterceptedException, StaleElementReferenceException, WebDriverException, UnexpectedAlertPresentException, NoAlertPresentException
 
 from srt_reservation.exceptions import InvalidStationNameError, InvalidDateError, InvalidDateFormatError, InvalidTimeFormatError
 from srt_reservation.validation import station_list
 from selenium.webdriver.common.alert import Alert
 from slack_sdk import WebClient
-
-chromedriver_path = r'C:\workspace\chromedriver.exe'
 
 class SRT:
     def __init__(self, dpt_stn, arr_stn, dpt_dt, dpt_tm, order_trains_to_check=2, want_reserve=False, slack_token = ""):
@@ -62,10 +60,12 @@ class SRT:
         self.login_psw = login_psw
 
     def run_driver(self):
+        # [수정] Selenium Manager(내장 기능)를 사용하여 드라이버 자동 실행
         try:
             self.driver = webdriver.Chrome()
-        except WebDriverException:
-            self.driver = webdriver.Chrome()
+        except Exception as e:
+            print(f"드라이버 실행 오류: {e}")
+            print("Selenium을 최신 버전으로 업데이트 해주세요: pip install --upgrade selenium")
 
     def login(self):
         self.driver.get('https://etk.srail.co.kr/cmc/01/selectLoginForm.do')
@@ -73,7 +73,23 @@ class SRT:
         self.driver.find_element(By.ID, 'srchDvNm01').send_keys(str(self.login_id))
         self.driver.find_element(By.ID, 'hmpgPwdCphd01').send_keys(str(self.login_psw))
         self.driver.find_element(By.XPATH, '//*[@id="login-form"]/fieldset/div[1]/div[2]/div[2]/div/div[2]/input').click()
-        self.driver.implicitly_wait(5)
+        
+        # [중요 수정] 로그인 처리 및 세션 생성을 위해 충분히 대기 (1초)
+        print("로그인 처리 대기 중...")
+        time.sleep(1) 
+        
+        # [추가] 비밀번호 변경 안내 팝업 등이 뜨면 닫아야 함 (창 핸들링)
+        # 메인 창(윈도우) 개수가 1개보다 많으면 팝업이 뜬 것임
+        if len(self.driver.window_handles) > 1:
+            current_window = self.driver.current_window_handle
+            # 모든 팝업 닫기
+            for handle in self.driver.window_handles:
+                if handle != current_window:
+                    self.driver.switch_to.window(handle)
+                    self.driver.close()
+            # 다시 메인 창으로 복귀
+            self.driver.switch_to.window(current_window)
+            
         return self.driver
 
     def check_login(self):
@@ -139,8 +155,10 @@ class SRT:
                 if self.driver.find_elements(By.ID, 'isFalseGotoMain'):
                     self.is_booked = True
                     print("예약 성공")
-                    self.client.chat_postMessage(channel="#alarm", text="book sucess")
-                    time.sleep(600)
+                    try:
+                        self.client.chat_postMessage(channel="#alarm", text="book sucess")
+                    except:
+                        pass
                     return self.driver
                 else:
                     print("잔여석 없음. 다시 검색")
@@ -169,8 +187,14 @@ class SRT:
 
     def check_result(self):
         while True:
-            alert = self.driver.switch_to.alert
-            alert.accept()
+            try:
+                alert = self.driver.switch_to.alert
+                alert.accept()
+            except NoAlertPresentException:
+                pass
+            except Exception:
+                pass
+
             for i in self.order_trains_to_check:
                 try:
                     standard_seat = self.driver.find_element(By.CSS_SELECTOR, f"#result-form > fieldset > div.tbl_wrap.th_thead > table > tbody > tr:nth-child({i}) > td:nth-child(7)").text
@@ -178,6 +202,9 @@ class SRT:
                 except StaleElementReferenceException:
                     standard_seat = "매진"
                     reservation = "매진"
+                except Exception:
+                    standard_seat = "확인불가"
+                    reservation = "확인불가"
 
                 if self.book_ticket(standard_seat, i):
                     return self.driver
@@ -198,13 +225,3 @@ class SRT:
         self.login()
         self.go_search()
         self.check_result()
-        time.sleep(600)
-
-#
-# if __name__ == "__main__":
-#     srt_id = os.environ.get('srt_id')
-#     srt_psw = os.environ.get('srt_psw')
-#
-#     srt = SRT("동탄", "동대구", "20220917", "08")
-#     srt.run(srt_id, srt_psw)
-
