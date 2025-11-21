@@ -19,5 +19,9 @@ if __name__ == "__main__":
     want_reserve = True # ignore it
     slack_token = "$slack_token" # you can just leave it
 
-    srt = SRT(dpt_stn, arr_stn, dpt_dt, dpt_tm, order_trains_to_check, want_reserve, slack_token)
+    gmail_send = "1234@gmail.com"
+    gmail_app_pw = "aaaa bbbb cccc dddd"
+    gmail_receive = gmail_send
+
+    srt = SRT(dpt_stn, arr_stn, dpt_dt, dpt_tm, order_trains_to_check, want_reserve, slack_token, gmail_send, gmail_app_pw, gmail_receive)
     srt.run(login_id, login_psw)

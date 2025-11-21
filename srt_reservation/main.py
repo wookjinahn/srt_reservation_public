@@ -15,8 +15,11 @@ from srt_reservation.validation import station_list
 from selenium.webdriver.common.alert import Alert
 from slack_sdk import WebClient
 
+import smtplib
+from email.mime.text import MIMEText
+
 class SRT:
-    def __init__(self, dpt_stn, arr_stn, dpt_dt, dpt_tm, order_trains_to_check=2, want_reserve=False, slack_token = ""):
+    def __init__(self, dpt_stn, arr_stn, dpt_dt, dpt_tm, order_trains_to_check=2, want_reserve=False, slack_token = "", gmail_send="", gmail_app_pw="", gmail_receive=""):
         """
         :param dpt_stn: SRT 출발역
         :param arr_stn: SRT 도착역
@@ -40,6 +43,10 @@ class SRT:
         self.is_booked = False  # 예약 완료 되었는지 확인용
         self.cnt_refresh = 0  # 새로고침 회수 기록
         self.client = WebClient(slack_token)
+
+        self.gmail_send = gmail_send
+        self.gmail_app_pw = gmail_app_pw
+        self.gmail_receive = gmail_receive
 
         self.check_input()
 
@@ -125,7 +132,7 @@ class SRT:
         Select(self.driver.find_element(By.ID, "dptTm")).select_by_visible_text(self.dpt_tm)
 
         print("기차를 조회합니다")
-        print(f"출발역:{self.dpt_stn} , 도착역:{self.arr_stn}\n날짜:{self.dpt_dt}, 시간: {self.dpt_tm}시 이후\n{self.order_trains_to_check}번째 기차 중 예약")
+        print(f"출발역:{self.dpt_stn}, 도착역:{self.arr_stn}\n날짜:{self.dpt_dt}, 시간: {self.dpt_tm}시 이후\n{self.order_trains_to_check}번째 기차 중 예약")
         print(f"예약 대기 사용: {self.want_reserve}")
 
         self.driver.find_element(By.XPATH, "//input[@value='조회하기']").click()
@@ -156,6 +163,7 @@ class SRT:
                     self.is_booked = True
                     print("예약 성공")
                     try:
+                        self.send_email("SRT 예매에 성공했습니다! 빨리 결제하세요!")
                         self.client.chat_postMessage(channel="#alarm", text="book sucess")
                     except:
                         pass
@@ -218,6 +226,25 @@ class SRT:
             else:
                 time.sleep(randint(2, 4))
                 self.refresh_result()
+
+    def send_email(self, message):
+
+        title = "[자동화] SRT 예매 성공 알림"
+        content = f"{message}\n\n10분 내에 결제하지 않으면 취소됩니다."
+
+        msg = MIMEText(content)
+        msg['Subject'] = title
+        msg['From'] = self.gmail_send
+        msg['To'] = self.gmail_receive
+
+        try:
+            # 지메일 SMTP 서버 연결 (보안 연결)
+            with smtplib.SMTP_SSL('smtp.gmail.com', 465) as smtp:
+                smtp.login(self.gmail_send, self.gmail_app_pw)
+                smtp.send_message(msg)
+            print("이메일 전송 성공!")
+        except Exception as e:
+            print(f"이메일 전송 실패: {e}")
 
     def run(self, login_id, login_psw):
         self.run_driver()
